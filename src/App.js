@@ -1,19 +1,27 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import "./App.css";
 import mapboxgl from "mapbox-gl";
-import { Alert, AutoComplete, List, Button } from "antd";
-
-/*
-CREARE CONTROLLO PER MARKERS E POSIZIONI INSERITE CON UNA LISTA CHE DI BASE PERMETTE DI ELMINARE
-L'ELEMENTO, E COME FUNZIONI AGGIUNTIVE PERMETTERÀ DI SELEZIONARNE UNA COME DESTINAZIONE E DI TRACCIARE UN PERCORSO
+import { Alert, AutoComplete, List, Button, Collapse } from "antd";
+import Firebase from './persistance/firebase'
 
 
-ALTRA FUNZIONALITÀ SARÀ QUELLA DI FILTRARE I PUNTI INSERITI NEL RAGGIO DI X KM IN BASE ALLA POSIZIONE CERCATA
-*/
 mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
 const MAPBOX_API_HOST = "https://api.mapbox.com/";
 const MAPBOX_GEOCODING = "geocoding/v5/";
 const MAPBOX_DIRECTIONS = "directions/v5";
+
+
+function useMarkers() {
+  const [markers, setMarkers] = useState
+
+  useEffect(() => {
+    //Firebase.firestore.
+  })
+
+  return markers
+}
+
+
 
 export default () => {
   const mapContainer = useRef(null);
@@ -26,6 +34,7 @@ export default () => {
   const [options, setOptions] = useState([]);
   const [searchValue, setSearchValue] = useState();
   const [markers, setMarkers] = useState([]);
+  const [message, setMessage] = useState();
 
   const handleSearch = value => {
     if (value) {
@@ -54,6 +63,13 @@ export default () => {
     setSearchValue(current);
   };
 
+  const addMarkers = useCallback(
+    toAddMarkers => {
+      setMarkers([...markers, ...toAddMarkers]);
+    },
+    [markers]
+  );
+
   const onSelect = (value, option) => {
     setSearchValue(option.children);
     mapManager.flyTo({ center: value, zoom: 12 });
@@ -62,7 +78,7 @@ export default () => {
       .setPopup(new mapboxgl.Popup().setText(option.children));
 
     marker.addTo(mapManager);
-    setMarkers([...markers, marker]);
+    addMarkers([marker]);
   };
 
   const removeMarker = (marker, index) => {
@@ -79,13 +95,35 @@ export default () => {
   };
 
   const getBounds = () => {
-    return markers.map(item => [item._lngLat.lng, item._lngLat.lat]);
+    let northeast = [];
+    let southwest = [];
+
+    markers.forEach(({ _lngLat }) => {
+      if (northeast.length === 0) {
+        northeast = [_lngLat.lng, _lngLat.lat];
+        southwest = [_lngLat.lng, _lngLat.lat];
+      } else {
+        if (_lngLat.lat < southwest[1]) {
+          southwest[1] = _lngLat.lat;
+        }
+        if (_lngLat.lat > northeast[1]) {
+          northeast[1] = _lngLat.lat;
+        }
+        if (_lngLat.lng < southwest[0]) {
+          southwest[0] = _lngLat.lng;
+        }
+        if (_lngLat.lng > northeast[0]) {
+          northeast[0] = _lngLat.lng;
+        }
+      }
+    });
+
+    return [northeast, southwest];
   };
 
   const fitBoundsMap = async () => {
-    const bounds = await getBounds()
-    console.log(bounds)
-    mapManager.fitBounds(bounds);
+    const bounds = await getBounds();
+    mapManager.fitBounds(bounds, { padding: 200 });
   };
 
   const handleDirection = () => {
@@ -99,43 +137,48 @@ export default () => {
         return response.json();
       })
       .then(data => {
-        const route = data.routes[0].geometry.coordinates;
-        const geojson = {
-          type: "Feature",
-          properties: {},
-          geometry: {
-            type: "LineString",
-            coordinates: route
-          }
-        };
-
-        if (mapManager.getSource("route")) {
-          mapManager.getSource("route").setData(geojson);
+        if (data.code === "NoRoute") {
+          setMessage(
+            <Alert
+              message="Errore"
+              description={data.message}
+              type="error"
+              showIcon
+            />
+          );
         } else {
-          mapManager.addLayer({
-            id: "route",
-            type: "line",
-            source: {
-              type: "geojson",
-              data: {
-                type: "Feature",
-                properties: {},
-                geometry: {
-                  type: "LineString",
-                  coordinates: geojson
-                }
-              }
-            },
-            layout: {
-              "line-join": "round",
-              "line-cap": "round"
-            },
-            paint: {
-              "line-color": "#3887be",
-              "line-width": 5,
-              "line-opacity": 0.75
+          const route = data.routes[0].geometry.coordinates;
+          const geojson = {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "LineString",
+              coordinates: route
             }
-          });
+          };
+
+          if (mapManager.getSource("route")) {
+            mapManager.getSource("route").setData(geojson);
+          } else {
+            mapManager.addSource("route", {
+              type: "geojson",
+              data: geojson
+            });
+            mapManager.addLayer({
+              id: "route",
+              type: "line",
+              source: "route",
+              layout: {
+                "line-join": "round",
+                "line-cap": "round"
+              },
+              paint: {
+                "line-color": "#3887be",
+                "line-width": 5,
+                "line-opacity": 0.75
+              }
+            });
+          }
         }
       });
   };
@@ -160,27 +203,22 @@ export default () => {
         });
       });
 
-      /* const GeolocateControl = new mapboxgl.GeolocateControl();
-      GeolocateControl.on("error", error => {
-        console.log(error);
-      });
-      map.addControl(GeolocateControl); */
       map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }));
       map.addControl(
         new mapboxgl.ScaleControl({
           maxWidth: 80
         })
       );
+
       map.addControl(new mapboxgl.FullscreenControl());
-      /* const geocoder = new MapboxGeocoder({
-        accessToken: mapboxgl.accessToken,
-        mapboxgl: mapboxgl
-      });
-      geocoder.addTo(map); */
 
       setMapManager(map);
     }
-  }, [mapConfig.lat, mapConfig.lng, mapConfig.zoom, mapManager]);
+  }, [addMarkers, mapConfig.lat, mapConfig.lng, mapConfig.zoom, mapManager]);
+
+  if (message) {
+    setTimeout(() => setMessage(null), 5000);
+  }
 
   return (
     <div>
@@ -198,31 +236,40 @@ export default () => {
           {options}
         </AutoComplete>
       </div>
-      {markers.length && (
+      {markers.length > 0 && (
         <div className="markersSection">
-          {markers.length > 1 && (
-            <Button onClick={handleDirection}>Genera il percorso</Button>
-          )}
-          <List
-            itemLayout="horizontal"
-            dataSource={markers}
-            renderItem={(item, index) => {
-              return (
-                <List.Item
-                  actions={[
-                    <Button onClick={() => removeMarker(item, index)}>
-                      remove
-                    </Button>
-                  ]}
-                >
-                  <List.Item.Meta
-                    title={item._popup._content.innerText}
-                    description={`Longitudine: ${item._lngLat.lng}  |  Latitudine: ${item._lngLat.lat}`}
-                  />
-                </List.Item>
-              );
-            }}
-          />
+          <Collapse defaultActiveKey={markers.length >= 2 ? ["1"] : []}>
+            <Collapse.Panel
+              key={"1"}
+              showArrow={false}
+              header="Dettaglio dei punti"
+            >
+              <Button onClick={fitBoundsMap}>Centra punti nella mappa</Button>
+              {markers.length > 1 && (
+                <Button onClick={handleDirection}>Genera il percorso</Button>
+              )}
+              <List
+                itemLayout="horizontal"
+                dataSource={markers}
+                renderItem={(item, index) => {
+                  return (
+                    <List.Item
+                      actions={[
+                        <Button onClick={() => removeMarker(item, index)}>
+                          remove
+                        </Button>
+                      ]}
+                    >
+                      <List.Item.Meta
+                        title={item._popup._content.innerText}
+                        description={`Longitudine: ${item._lngLat.lng}  |  Latitudine: ${item._lngLat.lat}`}
+                      />
+                    </List.Item>
+                  );
+                }}
+              />
+            </Collapse.Panel>
+          </Collapse>
         </div>
       )}
       <div className="mapContainer" ref={mapContainer}></div>
@@ -233,6 +280,7 @@ export default () => {
           type="info"
         />
       </div>
+      <div className="messageSection">{message}</div>
     </div>
   );
 };
