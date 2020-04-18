@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import "./App.css";
 import mapboxgl from "mapbox-gl";
 import { Alert, AutoComplete, List, Button, Collapse } from "antd";
-import Firebase from './persistance/firebase'
 
 
 mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
@@ -11,15 +10,6 @@ const MAPBOX_GEOCODING = "geocoding/v5/";
 const MAPBOX_DIRECTIONS = "directions/v5";
 
 
-function useMarkers() {
-  const [markers, setMarkers] = useState
-
-  useEffect(() => {
-    //Firebase.firestore.
-  })
-
-  return markers
-}
 
 
 
